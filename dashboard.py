@@ -16,7 +16,7 @@ def load_data():
 def process_data(data):
     df = pd.DataFrame(data)
     df["has_chat_history"] = df["chat_history"].apply(lambda x: len(x.get("old_questions", [])) > 0)
-    df["response_time"] = df["Время ответа модели"]
+    df["response_time"] = pd.to_numeric(df["Время ответа модели"], errors="coerce")
     return df
 
 
@@ -34,8 +34,13 @@ class Plots:
         fig = px.bar(x=counts.index, y=counts.values, labels={'x': x_label, 'y': y_label}, title=title)
         st.plotly_chart(fig)
 
-    def plot_response_time_chart(self):
-        fig = px.histogram(self.data, x="response_time", nbins=20, title="Распределение времени ответа модели")
+    def plot_response_time_chart_with_campus(self):
+        avg_response_time = self.data.groupby("Кампус")["response_time"].mean().reset_index()
+        fig = px.bar(avg_response_time, x="Кампус", y="response_time", title="Среднее время ответа модели")
+        st.plotly_chart(fig)
+
+    def plot_response_time_chart_line(self):
+        fig = px.line(self.data, x=self.data.index, y="response_time", markers=True, title="Среднее время ответа модели")
         st.plotly_chart(fig)
 
     def plot_follow_up_pie_chart(self):
@@ -65,7 +70,7 @@ if __name__ == "__main__":
     graphs.plot_bar_chart("Категория вопроса", "Распределение вопросов по категориям", "Категории", "Количество")
 
     st.subheader("Среднее время ответа модели")
-    graphs.plot_response_time_chart()
+    graphs.plot_response_time_chart_line()
 
     st.subheader("Частота уточняющих вопросов")
     graphs.plot_follow_up_pie_chart()
