@@ -26,17 +26,17 @@ class Plots:
 
     def plot_pie_chart(self, column, title):
         counts = self.data[column].value_counts()
-        fig = px.pie(names=counts.index, values=counts.values, title=title, hole=0.4)
+        fig = px.pie(names=counts.index, values=counts.values, title=title, hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
         st.plotly_chart(fig)
 
     def plot_bar_chart(self, column, title, x_label, y_label):
         counts = self.data[column].value_counts()
-        fig = px.bar(x=counts.index, y=counts.values, labels={'x': x_label, 'y': y_label}, title=title, text_auto=True)
+        fig = px.bar(x=counts.index, y=counts.values, labels={'x': x_label, 'y': y_label}, title=title, text_auto=True, color_discrete_sequence=px.colors.qualitative.Vivid)
         st.plotly_chart(fig)
 
     def plot_response_time_chart_with_campus(self):
         avg_response_time = self.data.groupby("Кампус")["response_time"].mean().reset_index()
-        fig = px.bar(avg_response_time, x="Кампус", y="response_time", title="Среднее время ответа по кампусам", color="Кампус", text_auto=True)
+        fig = px.bar(avg_response_time, x="Кампус", y="response_time", title="Среднее время ответа по кампусам", color="Кампус", text_auto=True, color_discrete_sequence=px.colors.qualitative.Set3)
         st.plotly_chart(fig)
 
     def plot_response_time_chart_line(self):
@@ -47,19 +47,18 @@ class Plots:
 
     def plot_follow_up_pie_chart(self):
         follow_ups = self.data["has_chat_history"].mean()
-        fig = px.pie(names=["Без уточнений", "С уточнениями"], values=[1 - follow_ups, follow_ups], title="Процент уточняющих вопросы пользователей", hole=0.3)
+        fig = px.pie(names=["Без уточнений", "С уточнениями"], values=[1 - follow_ups, follow_ups], title="Процент уточняющих вопросы пользователей", hole=0.3, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig)
 
 if __name__ == "__main__":
-    if st.button("🔄 Обновить данные"):
-        st.rerun()
-
     data = load_data()
     df = process_data(data)
 
     graphs = Plots(df)
 
-    st.title("Мониторинг качества чат-бота")
+    st.markdown("""
+        <h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>
+    """, unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:
