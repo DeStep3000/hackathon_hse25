@@ -26,7 +26,7 @@ def process_data(data):
     df["has_chat_history"] = df["chat_history"].apply(lambda x: len(x.get("old_questions", [])) > 0)
     df["response_time"] = pd.to_numeric(df["Время ответа модели"], errors="coerce")
     # Дополнительная метрика для оценки ситуации, когда модель выдает «убедительный, но неверный» ответ.
-    # Пример: если в chat_history несколько вопросов и время ответа больше 3 секунд, то считаем это конфликтной ситуацией.
+    # Пример: если в chat_history несколько вопросов и время ответа больше 3 секунд, считаем это конфликтной ситуацией.
     df["conflict_metric"] = df.apply(
         lambda row: 1 if (
                     len(row.get("chat_history", {}).get("old_questions", [])) > 1 and row["response_time"] > 3) else 0,
@@ -45,30 +45,100 @@ def download_json(data):
     )
 
 
-def download_plot(fig, filename):
-    # Функция для скачивания графика (Plotly) в формате PNG
-    try:
-        buffer = io.BytesIO()
-        fig.write_image(buffer, format="png")
-        buffer.seek(0)
-        st.download_button(
-            label=f"📊 Скачать график «{filename}»",
-            data=buffer.getvalue(),
-            file_name=f"{filename}.png",
-            mime="image/png"
-        )
-    except Exception as e:
-        st.error("Экспорт графика недоступен. Убедитесь, что установлен пакет kaleido.")
-
-
-def download_matplotlib_plot(fig, filename):
+# Функции экспорта графиков через Matplotlib
+def export_pie_chart_matplotlib(data, column, title):
+    counts = data[column].value_counts()
+    fig, ax = plt.subplots()
+    ax.pie(counts.values, labels=counts.index, autopct='%1.1f%%', startangle=90)
+    ax.axis('equal')
+    plt.title(title)
     buffer = io.BytesIO()
-    fig.savefig(buffer, format="png")
+    plt.savefig(buffer, format="png")
+    plt.close(fig)
     buffer.seek(0)
     st.download_button(
-        label=f"📊 Скачать график «{filename}»",
+        label=f"📊 Скачать график «{title}» (Matplotlib)",
         data=buffer.getvalue(),
-        file_name=f"{filename}.png",
+        file_name=f"{title}.png",
+        mime="image/png"
+    )
+
+
+def export_bar_chart_matplotlib(data, column, title, xlabel, ylabel):
+    counts = data[column].value_counts()
+    fig, ax = plt.subplots()
+    ax.bar(counts.index, counts.values)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    for i, v in enumerate(counts.values):
+        ax.text(i, v + 0.1, str(v), ha='center')
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format="png")
+    plt.close(fig)
+    buffer.seek(0)
+    st.download_button(
+        label=f"📊 Скачать график «{title}» (Matplotlib)",
+        data=buffer.getvalue(),
+        file_name=f"{title}.png",
+        mime="image/png"
+    )
+
+
+def export_response_time_by_campus_matplotlib(data):
+    group_data = data.groupby("Кампус")["response_time"].mean().reset_index()
+    fig, ax = plt.subplots()
+    ax.bar(group_data["Кампус"], group_data["response_time"])
+    ax.set_title("Среднее время ответа по кампусам")
+    ax.set_xlabel("Кампус")
+    ax.set_ylabel("Время ответа (сек)")
+    for i, v in enumerate(group_data["response_time"]):
+        ax.text(i, v + 0.1, f"{v:.2f}", ha='center')
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format="png")
+    plt.close(fig)
+    buffer.seek(0)
+    st.download_button(
+        label="📊 Скачать график «Среднее время ответа по кампусам» (Matplotlib)",
+        data=buffer.getvalue(),
+        file_name="Среднее_время_ответа_по_кампусам.png",
+        mime="image/png"
+    )
+
+
+def export_line_chart_matplotlib(data):
+    fig, ax = plt.subplots()
+    ax.plot(data.index, data["response_time"], marker='o', linestyle='-')
+    ax.set_title("Динамика времени ответа модели")
+    ax.set_xlabel("Запросы")
+    ax.set_ylabel("Время ответа (сек)")
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format="png")
+    plt.close(fig)
+    buffer.seek(0)
+    st.download_button(
+        label="📊 Скачать график «Динамика времени ответа модели» (Matplotlib)",
+        data=buffer.getvalue(),
+        file_name="Динамика_времени_ответа_модели.png",
+        mime="image/png"
+    )
+
+
+def export_conflict_metric_matplotlib(data):
+    conflict_rate = data["conflict_metric"].mean() * 100
+    fig, ax = plt.subplots()
+    ax.bar(["Конфликтный ответ"], [conflict_rate], color="red")
+    ax.set_ylim(0, 100)
+    ax.set_ylabel("Процент")
+    ax.set_title("Конфликтный ответ (%)")
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format="png")
+    plt.close(fig)
+    buffer.seek(0)
+    st.download_button(
+        label="📊 Скачать график «Конфликтный ответ (%)» (Matplotlib)",
+        data=buffer.getvalue(),
+        file_name="Конфликтный_ответ.png",
         mime="image/png"
     )
 
@@ -97,17 +167,19 @@ class Plots:
 
     def plot_pie_chart(self, column, title):
         counts = self.data[column].value_counts()
+        # Интерактивный график с помощью Plotly
         fig = px.pie(names=counts.index, values=counts.values, title=title, hole=0.4,
                      color_discrete_sequence=px.colors.sequential.RdBu)
         st.plotly_chart(fig)
-        download_plot(fig, title)
+        # Экспорт через Matplotlib
+        export_pie_chart_matplotlib(self.data, column, title)
 
     def plot_bar_chart(self, column, title, x_label, y_label):
         counts = self.data[column].value_counts()
         fig = px.bar(x=counts.index, y=counts.values, labels={'x': x_label, 'y': y_label},
                      title=title, text_auto=True, color_discrete_sequence=px.colors.qualitative.Vivid)
         st.plotly_chart(fig)
-        download_plot(fig, title)
+        export_bar_chart_matplotlib(self.data, column, title, x_label, y_label)
 
     def plot_response_time_chart_with_campus(self):
         avg_response_time = self.data.groupby("Кампус")["response_time"].mean().reset_index()
@@ -115,7 +187,7 @@ class Plots:
                      title="Среднее время ответа по кампусам", color="Кампус", text_auto=True,
                      color_discrete_sequence=px.colors.qualitative.Set3)
         st.plotly_chart(fig)
-        download_plot(fig, "Среднее время ответа по кампусам")
+        export_response_time_by_campus_matplotlib(self.data)
 
     def plot_response_time_chart_line(self):
         fig = go.Figure()
@@ -124,8 +196,8 @@ class Plots:
             y=self.data["response_time"],
             mode='lines+markers',
             name='Время ответа',
-            marker=dict(size=8, symbol='circle', color='red', line=dict(width=2, color='black')),
-            line=dict(width=2, color='blue')
+            marker=dict(size=15, symbol='circle', color='red', line=dict(width=2, color='black')),
+            line=dict(width=2, color='yellow')
         ))
         fig.update_layout(
             title="Динамика времени ответа модели",
@@ -134,7 +206,7 @@ class Plots:
             hovermode="x unified"
         )
         st.plotly_chart(fig)
-        download_plot(fig, "Динамика времени ответа модели")
+        export_line_chart_matplotlib(self.data)
 
     def plot_follow_up_pie_chart(self):
         follow_ups = self.data["has_chat_history"].mean()
@@ -143,14 +215,14 @@ class Plots:
                      title="Процент уточняющих вопросов пользователей", hole=0.3,
                      color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig)
-        download_plot(fig, "Процент уточняющих вопросов пользователей")
+        export_pie_chart_matplotlib(self.data, "has_chat_history", "Процент уточняющих вопросов пользователей")
 
     def plot_conflict_metric(self):
         # Визуализация дополнительной метрики: процент конфликтных ответов
-        conflict_rate = self.data["conflict_metric"].mean()
+        conflict_rate = self.data["conflict_metric"].mean() * 100
         fig = go.Figure(go.Indicator(
             mode="gauge+number",
-            value=conflict_rate * 100,
+            value=conflict_rate,
             title={"text": "Конфликтный ответ (%)"},
             gauge={
                 'axis': {'range': [0, 100]},
@@ -162,7 +234,7 @@ class Plots:
             }
         ))
         st.plotly_chart(fig)
-        download_plot(fig, "Конфликтный ответ")
+        export_conflict_metric_matplotlib(self.data)
 
 
 if __name__ == "__main__":
