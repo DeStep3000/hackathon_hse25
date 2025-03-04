@@ -1,9 +1,12 @@
+import io
 import json
+
+import matplotlib.pyplot as plt
 import pandas as pd
-import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 import plotly.graph_objects as go
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Аналитика Чат-Бота", page_icon="🤖", layout="wide")
 
@@ -52,8 +55,8 @@ class Plots:
             y=self.data["response_time"],
             mode='lines+markers',
             name='Время ответа',
-            marker=dict(size=15, symbol='circle', color='red', line=dict(width=2, color='black')),
-            line=dict(width=2, color='yellow')
+            marker=dict(size=8, symbol='circle', color='red', line=dict(width=2, color='black')),
+            line=dict(width=2, color='blue')
         ))
         fig.update_layout(
             title="Динамика времени ответа модели",
@@ -71,15 +74,75 @@ class Plots:
         st.plotly_chart(fig)
 
 
+def download_json(data):
+    json_data = json.dumps(data, indent=4, ensure_ascii=False)
+    st.download_button(
+        label="📥 Скачать JSON",
+        data=json_data,
+        file_name="chatbot_logs.json",
+        mime="application/json"
+    )
+
+
+def download_graphics():
+    buffer = io.BytesIO()
+
+    if df.empty:
+        st.warning("Нет данных для экспорта графика!")
+        return
+
+    # Создаем график с matplotlib
+    fig, ax = plt.subplots()
+    ax.plot(df.index, df["response_time"], marker='o', linestyle='-', color='blue', label='Время ответа')
+    ax.set_title("Динамика времени ответа модели")
+    ax.set_xlabel("Запросы")
+    ax.set_ylabel("Время ответа (сек)")
+    ax.legend()
+
+    plt.savefig(buffer, format="png")
+    buffer.seek(0)
+
+    st.download_button(
+        label="📊 Скачать график",
+        data=buffer.getvalue(),
+        file_name="response_time_chart.png",
+        mime="image/png"
+    )
+
+
+def filter_data(df):
+    campuses = df["Кампус"].unique().tolist()
+    categories = df["Категория вопроса"].unique().tolist()
+    education_levels = df["Уровень образования"].unique().tolist()
+
+    selected_campus = st.sidebar.multiselect("Выберите кампус", campuses, default=campuses)
+    selected_category = st.sidebar.multiselect("Выберите категорию вопроса", categories, default=categories)
+    selected_edu_level = st.sidebar.multiselect("Выберите уровень образования", education_levels,
+                                                default=education_levels)
+
+    filtered_df = df[
+        (df["Кампус"].isin(selected_campus)) &
+        (df["Категория вопроса"].isin(selected_category)) &
+        (df["Уровень образования"].isin(selected_edu_level))
+        ]
+    return filtered_df
+
+
 if __name__ == "__main__":
+    st.sidebar.title("Фильтры")
+    st.sidebar.subheader("📥 Экспорт данных")
+
     data = load_data()
     df = process_data(data)
+
+    download_json(data)
+    download_graphics()
 
     graphs = Plots(df)
 
     st.markdown("""
-        <h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>
-    """, unsafe_allow_html=True)
+            <h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>
+        """, unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
     with col1:
