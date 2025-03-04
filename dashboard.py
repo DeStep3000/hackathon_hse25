@@ -1,8 +1,8 @@
-import streamlit as st
-import pandas as pd
 import json
-import plotly.express as px
-from collections import Counter
+
+import pandas as pd
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 
 # Загружаем данные (пример логов)
@@ -12,9 +12,6 @@ def load_data():
         return json.load(file)  # Читаем JSON-файл целиком
 
 
-data = load_data()
-
-
 # Функции для анализа данных
 def process_data(data):
     df = pd.DataFrame(data)
@@ -22,6 +19,11 @@ def process_data(data):
     df["response_time"] = df["Время ответа модели"]
     return df
 
+
+# Обновление каждые 10 секунд
+st_autorefresh(interval=10 * 1000, key="data_refresh")
+
+data = load_data()
 
 df = process_data(data)
 
