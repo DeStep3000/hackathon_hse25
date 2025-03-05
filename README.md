@@ -76,4 +76,4 @@ hackaton_metrics2.ipynb
   - Tag Relevance (оценивает соответствие тегов ответа эталонным тегам)
   - Context Coverage (анализирует покрытие ключевых слов из ответа в контексте)
  
-Hallucination Metric = 0.3 * Semantic Consistency + 0.4 * Factual Accuracy + 0.2 * Tag Relevance + 0.1 * Context Coverage
+faithfulness_score = 0.3 * Semantic Consistency + 0.4 * Factual Accuracy + 0.2 * Tag Relevance + 0.1 * Context Coverage
