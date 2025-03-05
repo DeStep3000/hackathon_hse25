@@ -1,5 +1,4 @@
 import json
-
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -217,33 +216,33 @@ class Plots:
         )
         show_plot_with_download_below(fig, "resp_time_boxplot")
 
-    # (1) Четыре отдельных графика (по одной метрике на каждый)
+    # (1) Отдельные графики для метрик качества (каждая метрика отдельный график)
     def plot_quality_metrics_separate(self):
         needed_cols = [
             "question_category",
             "context_recall",
             "context_precision",
             "answer_correctness_literal",
-            "answer_correctness_neural"
+            "answer_correctness_neural",
+            "Hallucination_metric"
         ]
         for c in needed_cols:
             if c not in self.data.columns:
                 return st.info(f"Нет столбца '{c}' для построения метрик.")
 
-        # Список метрик
+        # Список метрик (всего 5)
         metrics = [
             "context_recall",
             "context_precision",
             "answer_correctness_literal",
-            "answer_correctness_neural"
+            "answer_correctness_neural",
+            "Hallucination_metric"
         ]
 
-        # Создаём 4 колонки под 4 графика
-        cols = st.columns(4)
+        # Создаём 5 колонок для графиков
+        cols = st.columns(5)
         for i, metric in enumerate(metrics):
-            # Группируем по категориям вопросов
             grouped = self.data.groupby("question_category")[metric].mean().reset_index()
-
             fig = px.bar(
                 grouped,
                 x="question_category",
@@ -257,35 +256,40 @@ class Plots:
             with cols[i]:
                 show_plot_with_download_below(fig, f"separate_{metric}")
 
-    # (2) Сводный график, где все 4 метрики на одном полотне (со шкалированием 0-100)
+    # (2) Сводный график, где все 5 метрик на одном полотне (со шкалированием 0-100)
     def plot_quality_metrics_combined(self):
         needed_cols = [
             "question_category",
             "context_recall",
             "context_precision",
             "answer_correctness_literal",
-            "answer_correctness_neural"
+            "answer_correctness_neural",
+            "Hallucination_metric"
         ]
         for c in needed_cols:
             if c not in self.data.columns:
                 return st.info(f"Нет столбца '{c}' для построения метрик.")
 
-        grouped = self.data.groupby("question_category")[
-            ["context_recall", "context_precision", "answer_correctness_literal", "answer_correctness_neural"]
-        ].mean().reset_index()
+        metrics = [
+            "context_recall",
+            "context_precision",
+            "answer_correctness_literal",
+            "answer_correctness_neural",
+            "Hallucination_metric"
+        ]
+
+        grouped = self.data.groupby("question_category")[metrics].mean().reset_index()
 
         # Масштабируем каждую метрику к диапазону [0, 100]
-        for metric in ["context_recall", "context_precision", "answer_correctness_literal",
-                       "answer_correctness_neural"]:
+        for metric in metrics:
             max_val = grouped[metric].max()
             if max_val > 0:
                 grouped[metric] = grouped[metric] / max_val * 100
 
-        # Переводим в длинный формат
+        # Переводим данные в длинный формат
         melted = grouped.melt(
             id_vars="question_category",
-            value_vars=["context_recall", "context_precision", "answer_correctness_literal",
-                        "answer_correctness_neural"],
+            value_vars=metrics,
             var_name="metric",
             value_name="mean_value"
         )
@@ -301,7 +305,6 @@ class Plots:
                 "mean_value": "Среднее (0–100)",
                 "metric": "Метрика"
             },
-            # Убираем title, чтобы не дублировать заголовок со страницы
             title=""
         )
         show_plot_with_download_below(fig, "combined_quality_metrics")
@@ -338,7 +341,8 @@ def sidebar_layout(df: pd.DataFrame):
 
 
 def main():
-    data = load_data("output_last.json")
+    # Обратите внимание, что имя файла обновлено под новый JSON
+    data = load_data("output_last (1).json")
     df = process_data(data)
     filtered_df = sidebar_layout(df)
     if filtered_df.empty:
@@ -353,11 +357,11 @@ def main():
     st.markdown("### Экспорт данных")
     download_json(filtered_df.to_dict(orient="records"))
 
-    # --- 1) Четыре отдельных графика (каждая метрика отдельно) ---
+    # --- 1) Отдельные графики для метрик качества ---
     st.markdown("## Отдельные метрики качества")
     graphs.plot_quality_metrics_separate()
 
-    # --- 2) Один общий график со всеми метриками (со шкалированием), без повторяющегося заголовка ---
+    # --- 2) Сводный график метрик качества ---
     st.markdown("## Сводный график метрик качества")
     graphs.plot_quality_metrics_combined()
 
@@ -370,14 +374,12 @@ def main():
             graphs.plot_pie_chart("campus", "unused_title")
         else:
             st.info("Нет столбца 'campus'")
-
     with col2:
         st.subheader("Распределение по уровням образования")
         if "education_level" in filtered_df.columns:
             graphs.plot_pie_chart("education_level", "unused_title")
         else:
             st.info("Нет столбца 'education_level'")
-
     with col3:
         st.subheader("Частота уточняющих вопросов")
         graphs.plot_follow_up_pie_chart()
@@ -400,7 +402,6 @@ def main():
     st.markdown("## Дополнительные графики")
     st.subheader("Распределение времени ответа (BoxPlot)")
     graphs.plot_response_time_boxplot()
-
     st.subheader("Метрика конфликтного ответа")
     graphs.plot_conflict_metric()
 
