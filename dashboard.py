@@ -1,7 +1,5 @@
-import io
 import json
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -13,46 +11,39 @@ from streamlit_autorefresh import st_autorefresh
 # ---------------------------
 st.set_page_config(page_title="Аналитика Чат-Бота", page_icon="🤖", layout="wide")
 
-# ---------------------------
-# АВТОПЕРЕЗАГРУЗКА (напр. каждые 10 секунд)
-# ---------------------------
+# Автоматическая перезагрузка каждые 10 секунд
 time_interval = 10
 st_autorefresh(interval=time_interval * 1000, key="data_refresh")
 
 
 # ---------------------------
-# ЗАГРУЗКА И ПРЕДОБРАБОТКА ДАННЫХ
+# ФУНКЦИЯ ДЛЯ ЗАГРУЗКИ ДАННЫХ
 # ---------------------------
-def load_data(file_name):
-    """
-    Загружает JSON-файл с логами.
-    Предполагается, что файл лежит в корне проекта под именем logs.json.
-    """
+def load_data(file_name: str):
     with open(file_name, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
+# ---------------------------
+# ПРЕДОБРАБОТКА ДАННЫХ
+# ---------------------------
 def process_data(data):
-    """
-    Преобразует JSON в DataFrame, добавляет столбцы:
-    - has_chat_history: флаг, есть ли уточняющие вопросы
-    - response_time: numeric-колонка с временем ответа
-    - conflict_metric: пример кастомной метрики
-    """
     df = pd.DataFrame(data)
     df["has_chat_history"] = df["chat_history"].apply(lambda x: len(x.get("old_questions", [])) > 0)
     df["response_time"] = pd.to_numeric(df["Время ответа модели"], errors="coerce")
 
     # Доп. метрика: "убедительный, но неверный ответ"
-    # Пример условия: если много контекстов (или несколько вопросов) + время ответа больше 3 секунд => конфликт
     df["conflict_metric"] = df.apply(
-        lambda row: 1 if (len(row.get("chat_history", {}).get("old_questions", [])) > 1
-                          and row["response_time"] > 3) else 0,
+        lambda row: 1 if (len(row.get("chat_history", {}).get("old_questions", [])) > 1 and row["response_time"] > 3)
+        else 0,
         axis=1
     )
     return df
 
 
+# ---------------------------
+# ЭКСПОРТ ДАННЫХ (JSON)
+# ---------------------------
 def download_json(data):
     """
     Кнопка для скачивания исходного JSON (логов).
@@ -67,127 +58,32 @@ def download_json(data):
 
 
 # ---------------------------
-# КЛАСС ДЛЯ ЭКСПОРТА ГРАФИКОВ (MATPLOTLIB)
+# ЭКСПОРТ ГРАФИКОВ ЧЕРЕЗ PLOTLY (KALEIDO)
 # ---------------------------
-class Exports:
-    @staticmethod
-    def export_pie_chart_matplotlib(data, column, title):
-        counts = data[column].value_counts()
-        if counts.empty:
-            return
-        fig, ax = plt.subplots()
-        ax.pie(counts.values, labels=counts.index, autopct='%1.1f%%', startangle=90)
-        ax.axis('equal')
-        plt.title(title)
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png")
-        plt.close(fig)
-        buffer.seek(0)
+def download_plotly_fig(fig, filename: str):
+    """
+    Сохраняет Plotly-график в PNG с помощью Kaleido и даёт кнопку для скачивания.
+    """
+    try:
+        img_bytes = fig.to_image(format="png")
         st.download_button(
-            label=f"📊 Скачать график «{title}» (Matplotlib)",
-            data=buffer.getvalue(),
-            file_name=f"{title}.png",
+            label=f"📊 Скачать график «{filename}»",
+            data=img_bytes,
+            file_name=f"{filename}.png",
             mime="image/png"
         )
-
-    @staticmethod
-    def export_bar_chart_matplotlib(data, column, title, xlabel, ylabel):
-        counts = data[column].value_counts()
-        if counts.empty:
-            return
-        fig, ax = plt.subplots()
-        ax.bar(counts.index, counts.values)
-        ax.set_title(title)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
-        for i, v in enumerate(counts.values):
-            ax.text(i, v + 0.1, str(v), ha='center')
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png")
-        plt.close(fig)
-        buffer.seek(0)
-        st.download_button(
-            label=f"📊 Скачать график «{title}» (Matplotlib)",
-            data=buffer.getvalue(),
-            file_name=f"{title}.png",
-            mime="image/png"
-        )
-
-    @staticmethod
-    def export_response_time_by_campus_matplotlib(data):
-        if data.empty or "Кампус" not in data.columns or "response_time" not in data.columns:
-            return
-        group_data = data.groupby("Кампус")["response_time"].mean().reset_index()
-        if group_data.empty:
-            return
-        fig, ax = plt.subplots()
-        ax.bar(group_data["Кампус"], group_data["response_time"])
-        ax.set_title("Среднее время ответа по кампусам")
-        ax.set_xlabel("Кампус")
-        ax.set_ylabel("Время ответа (сек)")
-        for i, v in enumerate(group_data["response_time"]):
-            ax.text(i, v + 0.1, f"{v:.2f}", ha='center')
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png")
-        plt.close(fig)
-        buffer.seek(0)
-        st.download_button(
-            label="📊 Скачать график «Среднее время ответа по кампусам» (Matplotlib)",
-            data=buffer.getvalue(),
-            file_name="Среднее_время_ответа_по_кампусам.png",
-            mime="image/png"
-        )
-
-    @staticmethod
-    def export_line_chart_matplotlib(data):
-        if data.empty or "response_time" not in data.columns:
-            return
-        fig, ax = plt.subplots()
-        ax.plot(data.index, data["response_time"], marker='o', linestyle='-')
-        ax.set_title("Динамика времени ответа модели")
-        ax.set_xlabel("Запросы")
-        ax.set_ylabel("Время ответа (сек)")
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png")
-        plt.close(fig)
-        buffer.seek(0)
-        st.download_button(
-            label="📊 Скачать график «Динамика времени ответа модели» (Matplotlib)",
-            data=buffer.getvalue(),
-            file_name="Динамика_времени_ответа_модели.png",
-            mime="image/png"
-        )
-
-    @staticmethod
-    def export_conflict_metric_matplotlib(data):
-        if data.empty or "conflict_metric" not in data.columns:
-            return
-        conflict_rate = data["conflict_metric"].mean() * 100
-        fig, ax = plt.subplots()
-        ax.bar(["Конфликтный ответ"], [conflict_rate], color="red")
-        ax.set_ylim(0, 100)
-        ax.set_ylabel("Процент")
-        ax.set_title("Конфликтный ответ (%)")
-        buffer = io.BytesIO()
-        plt.savefig(buffer, format="png")
-        plt.close(fig)
-        buffer.seek(0)
-        st.download_button(
-            label="📊 Скачать график «Конфликтный ответ (%)» (Matplotlib)",
-            data=buffer.getvalue(),
-            file_name="Конфликтный_ответ.png",
-            mime="image/png"
-        )
+    except Exception as e:
+        st.error(f"Не удалось экспортировать график в PNG. Убедитесь, что kaleido установлен. Ошибка: {e}")
 
 
 # ---------------------------
-# КЛАСС ДЛЯ ПОСТРОЕНИЯ ГРАФИКОВ (PLOTLY) + ВЫЗОВ ЭКСПОРТА
+# КЛАСС ДЛЯ ПОСТРОЕНИЯ ГРАФИКОВ (PLOTLY)
 # ---------------------------
 class Plots:
-    def __init__(self, data):
+    def __init__(self, data: pd.DataFrame):
         self.data = data
 
-    def plot_pie_chart(self, column, title):
+    def plot_pie_chart(self, column: str, title: str):
         if self.data.empty or self.data[column].dropna().empty:
             st.info(f"Нет данных для построения графика: {title}")
             return
@@ -200,9 +96,9 @@ class Plots:
             color_discrete_sequence=px.colors.sequential.RdBu
         )
         st.plotly_chart(fig)
-        Exports.export_pie_chart_matplotlib(self.data, column, title)
+        download_plotly_fig(fig, title)
 
-    def plot_bar_chart(self, column, title, x_label, y_label):
+    def plot_bar_chart(self, column: str, title: str, x_label: str, y_label: str):
         if self.data.empty or self.data[column].dropna().empty:
             st.info(f"Нет данных для построения графика: {title}")
             return
@@ -219,7 +115,7 @@ class Plots:
             color_discrete_sequence=px.colors.qualitative.Vivid
         )
         st.plotly_chart(fig)
-        Exports.export_bar_chart_matplotlib(self.data, column, title, x_label, y_label)
+        download_plotly_fig(fig, title)
 
     def plot_response_time_chart_with_campus(self):
         if self.data.empty or "Кампус" not in self.data.columns or "response_time" not in self.data.columns:
@@ -239,7 +135,7 @@ class Plots:
             color_discrete_sequence=px.colors.qualitative.Set3
         )
         st.plotly_chart(fig)
-        Exports.export_response_time_by_campus_matplotlib(self.data)
+        download_plotly_fig(fig, "Среднее время ответа по кампусам")
 
     def plot_response_time_chart_line(self):
         if self.data.empty or "response_time" not in self.data.columns:
@@ -251,8 +147,8 @@ class Plots:
             y=self.data["response_time"],
             mode='lines+markers',
             name='Время ответа',
-            marker=dict(size=15, symbol='circle', color='red', line=dict(width=2, color='black')),
-            line=dict(width=2, color='yellow')
+            marker=dict(size=8, symbol='circle', color='red', line=dict(width=2, color='black')),
+            line=dict(width=2, color='blue')
         ))
         fig.update_layout(
             title="Динамика времени ответа модели",
@@ -261,7 +157,7 @@ class Plots:
             hovermode="x unified"
         )
         st.plotly_chart(fig)
-        Exports.export_line_chart_matplotlib(self.data)
+        download_plotly_fig(fig, "Динамика времени ответа модели")
 
     def plot_follow_up_pie_chart(self):
         if self.data.empty or "has_chat_history" not in self.data.columns:
@@ -276,7 +172,7 @@ class Plots:
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
         st.plotly_chart(fig)
-        Exports.export_pie_chart_matplotlib(self.data, "has_chat_history", "Процент уточняющих вопросов пользователей")
+        download_plotly_fig(fig, "Процент уточняющих вопросов пользователей")
 
     def plot_conflict_metric(self):
         if self.data.empty or "conflict_metric" not in self.data.columns:
@@ -297,20 +193,13 @@ class Plots:
             }
         ))
         st.plotly_chart(fig)
-        Exports.export_conflict_metric_matplotlib(self.data)
+        download_plotly_fig(fig, "Конфликтный ответ (%)")
 
 
 # ---------------------------
-# ФУНКЦИЯ ДЛЯ ФИЛЬТРАЦИИ (БОКОВАЯ ПАНЕЛЬ)
+# БОКОВАЯ ПАНЕЛЬ (ФИЛЬТРАЦИЯ)
 # ---------------------------
-def sidebar_layout(df):
-    """
-    Создает элементы боковой панели:
-    - Заголовок "Фильтры"
-    - Фильтры (кампус, категория, уровень)
-    - Подзаголовок "Экспорт данных" + кнопка скачивания JSON
-    Возвращает отфильтрованный датафрейм.
-    """
+def sidebar_layout(df: pd.DataFrame):
     st.sidebar.title("Фильтры")
 
     campuses = df["Кампус"].dropna().unique().tolist()
@@ -322,9 +211,8 @@ def sidebar_layout(df):
     selected_edu_level = st.sidebar.multiselect("Выберите уровень образования", education_levels,
                                                 default=education_levels)
 
-    # Подзаголовок и кнопка для экспорта JSON
     st.sidebar.subheader("Экспорт данных")
-    # Кнопка для скачивания JSON (вызывает download_json, которая объявлена выше)
+    # Кнопка скачивания JSON
     download_json(df.to_dict(orient="records"))
 
     filtered_df = df[
@@ -336,29 +224,28 @@ def sidebar_layout(df):
 
 
 # ---------------------------
-# ОСНОВНАЯ ЧАСТЬ ПРИЛОЖЕНИЯ
+# ОСНОВНОЙ БЛОК ПРИЛОЖЕНИЯ
 # ---------------------------
 def main():
-    data = load_data('logs.json')  # Загрузка исходного JSON
-    df = process_data(data)  # Предобработка (DataFrame + новые колонки)
+    # 1. Загрузка и подготовка данных
+    data = load_data("logs.json")
+    df = process_data(data)
 
-    # Получаем отфильтрованный DataFrame через боковую панель
+    # 2. Боковая панель (фильтрация + экспорт)
     filtered_df = sidebar_layout(df)
 
-    # Если после фильтров данных нет — предупредим
+    # Если после фильтров нет данных
     if filtered_df.empty:
         st.info("Нет данных для отображения. Попробуйте изменить фильтры.")
         return
 
-    # Инициализируем класс для построения графиков
+    # 3. Инициализация класса для построения графиков
     graphs = Plots(filtered_df)
 
-    # Заголовок дашборда (в центре)
-    st.markdown("""
-        <h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>
-    """, unsafe_allow_html=True)
+    # 4. Заголовок
+    st.markdown("<h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>", unsafe_allow_html=True)
 
-    # Построение графиков
+    # 5. Построение графиков
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Распределение запросов по кампусам")
@@ -385,5 +272,8 @@ def main():
     graphs.plot_conflict_metric()
 
 
+# ---------------------------
+# ЗАПУСК
+# ---------------------------
 if __name__ == "__main__":
     main()
