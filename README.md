@@ -2,7 +2,7 @@
 ## Установка requirements
 Для работы проекта необходимы библиотеки, указанные в requirements:
 ```
-pip install requirements.txt
+pip install -r requirements.txt
 ```
 ## Запуск проекта
 Перейдите в корневую папку.
