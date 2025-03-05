@@ -39,18 +39,14 @@ def process_data(data):
             axis=1
         )
     elif "contexts" in df.columns:
-        # Создаем флаг наличия контекстов
         df["has_contexts"] = df["contexts"].apply(lambda x: len(x) > 0 if isinstance(x, list) else False)
         df["conflict_metric"] = df.apply(
             lambda row: 1 if (
-                        row["has_contexts"] and len(row.get("contexts", [])) > 1 and row["response_time"] > 3) else 0,
+                    row["has_contexts"] and len(row.get("contexts", [])) > 1 and row["response_time"] > 3) else 0,
             axis=1
         )
     else:
-        df["has_contexts"] = False
         df["conflict_metric"] = 0
-
-    # Обновляем значение времени ответа, теперь ключ "response_time" уже есть в JSON
     df["response_time"] = pd.to_numeric(df["response_time"], errors="coerce")
     return df
 
@@ -73,7 +69,7 @@ def download_json(data):
 # ---------------------------
 def download_plotly_fig(fig, filename: str):
     try:
-        # Метод to_image использует Kaleido под капотом (убедитесь, что kaleido установлен)
+        # Метод to_image использует Kaleido под капотом (убедитесь, что установлен kaleido)
         img_bytes = fig.to_image(format="png")
         st.download_button(
             label=f"📊 Скачать график «{filename}»",
@@ -146,47 +142,31 @@ class Plots:
         st.plotly_chart(fig)
         download_plotly_fig(fig, "Среднее время ответа по кампусам")
 
-    def plot_response_time_chart_line(self):
+    def plot_averaged_response_time_chart(self, bin_size: int = 10):
         if self.data.empty or "response_time" not in self.data.columns:
-            st.info("Нет данных для построения графика: Динамика времени ответа модели")
+            st.info("Нет данных для построения графика: Среднее время ответа (усреднение)")
             return
+        df_copy = self.data.copy()
+        # Группируем по блокам: каждая группа состоит из bin_size запросов
+        df_copy["group"] = df_copy.index // bin_size
+        grouped = df_copy.groupby("group")["response_time"].mean().reset_index()
 
-        # Создаем колонку со скользящим средним (окно = 20)
-        # min_periods=1 позволяет строить среднее даже если данных меньше 20
-        self.data["rolling_avg"] = self.data["response_time"].rolling(window=20, min_periods=1).mean()
-
-        fig = go.Figure()
-
-        # Точки (scatter) для каждого запроса
-        fig.add_trace(go.Scatter(
-            x=self.data.index,
-            y=self.data["response_time"],
-            mode='markers',
-            name='Время ответа (сырые данные)',
-            marker=dict(size=5, color='red')
-        ))
-
-        # Линия скользящего среднего
-        fig.add_trace(go.Scatter(
-            x=self.data.index,
-            y=self.data["rolling_avg"],
-            mode='lines',
-            name='Скользящее среднее (окно=20)',
-            line=dict(width=2, color='blue')
-        ))
-
-        fig.update_layout(
-            title="Динамика времени ответа модели (со скользящим средним)",
-            xaxis_title="Запросы",
-            yaxis_title="Время ответа (сек)",
-            hovermode="x unified"
+        # Создаем вертикальную столбчатую диаграмму:
+        fig = px.bar(
+            grouped,
+            x="response_time",  # номер группы
+            y="group",  # среднее время ответа
+            title=f"Среднее время ответа (усреднение по группам из {bin_size} запросов)",
+            labels={
+                "group": f"Номер группы (каждая группа из {bin_size} запросов)",
+                "response_time": "Среднее время ответа (сек)"
+            }
         )
-
         st.plotly_chart(fig)
-        download_plotly_fig(fig, "Динамика времени ответа (скользящее среднее)")
+        download_plotly_fig(fig, f"Среднее время ответа (усреднение по группам {bin_size})")
 
     def plot_follow_up_pie_chart(self):
-        # Здесь используем флаг наличия контекстов, созданный в process_data (если "chat_history" отсутствует)
+        # Используем флаг "has_chat_history" или "has_contexts"
         if self.data.empty:
             st.info("Нет данных для построения графика: Процент уточняющих вопросов")
             return
@@ -232,8 +212,6 @@ class Plots:
 # ---------------------------
 def sidebar_layout(df: pd.DataFrame):
     st.sidebar.title("Фильтры")
-
-    # Используем ключи из нового JSON
     campuses = df["campus"].dropna().unique().tolist()
     categories = df["question_category"].dropna().unique().tolist()
     education_levels = df["education_level"].dropna().unique().tolist()
@@ -258,18 +236,14 @@ def sidebar_layout(df: pd.DataFrame):
 # ОСНОВНАЯ ЧАСТЬ ПРИЛОЖЕНИЯ
 # ---------------------------
 def main():
-    # Загрузка и подготовка данных из нового JSON
     data = load_data("output_last.json")
     df = process_data(data)
-
-    # Боковая панель с фильтрами и экспортом
     filtered_df = sidebar_layout(df)
     if filtered_df.empty:
         st.info("Нет данных для отображения. Попробуйте изменить фильтры.")
         return
 
     graphs = Plots(filtered_df)
-
     st.markdown("<h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>", unsafe_allow_html=True)
 
     col1, col2 = st.columns(2)
@@ -288,8 +262,8 @@ def main():
         st.subheader("Среднее время ответа по кампусам")
         graphs.plot_response_time_chart_with_campus()
     with col4:
-        st.subheader("Динамика времени ответа")
-        graphs.plot_response_time_chart_line()
+        st.subheader("Среднее время ответа (усреднение)")
+        graphs.plot_averaged_response_time_chart(bin_size=10)
 
     st.subheader("Частота уточняющих вопросов")
     graphs.plot_follow_up_pie_chart()
