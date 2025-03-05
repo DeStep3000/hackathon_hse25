@@ -1,5 +1,5 @@
-import io
 import json
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -95,7 +95,7 @@ class Plots:
     def __init__(self, data: pd.DataFrame):
         self.data = data
 
-    # Пироговая диаграмма: убираем title, т.к. субхедер уже есть
+    # Пироговая диаграмма
     def plot_pie_chart(self, column: str, _unused_title: str):
         if self.data.empty or column not in self.data.columns or self.data[column].dropna().empty:
             return st.info("Нет данных для построения графика")
@@ -108,7 +108,7 @@ class Plots:
         )
         show_plot_with_download_below(fig, f"pie_{column}")
 
-    # Столбчатая диаграмма: убираем title
+    # Столбчатая диаграмма
     def plot_bar_chart(self, column: str, _unused_title: str, x_label: str, y_label: str):
         if self.data.empty or column not in self.data.columns or self.data[column].dropna().empty:
             return st.info("Нет данных для построения графика")
@@ -124,7 +124,7 @@ class Plots:
         )
         show_plot_with_download_below(fig, f"bar_{column}")
 
-    # Среднее время ответа по кампусам: убираем title
+    # Среднее время ответа по кампусам
     def plot_response_time_chart_with_campus(self):
         if self.data.empty or "campus" not in self.data.columns or "response_time" not in self.data.columns:
             return st.info("Нет данных для построения графика")
@@ -141,7 +141,7 @@ class Plots:
         )
         show_plot_with_download_below(fig, "resp_time_by_campus")
 
-    # УСРЕДНЕНИЕ времени ответа
+    # УСРЕДНЕНИЕ времени ответа (по группам запросов)
     def plot_averaged_response_time_chart(self, bin_size: int = 10):
         if self.data.empty or "response_time" not in self.data.columns:
             return st.info("Нет данных для построения графика")
@@ -217,8 +217,8 @@ class Plots:
         )
         show_plot_with_download_below(fig, "resp_time_boxplot")
 
-    # Метрики контекста и корректности: строим 4 отдельных графика
-    def plot_quality_metrics(self):
+    # (1) Четыре отдельных графика (по одной метрике на каждый)
+    def plot_quality_metrics_separate(self):
         needed_cols = [
             "question_category",
             "context_recall",
@@ -228,32 +228,83 @@ class Plots:
         ]
         for c in needed_cols:
             if c not in self.data.columns:
-                return st.info(f"Нет столбца '{c}' для построения метрик")
-        # Словарь для переименования метрик на русском
-        rename_dict = {
-            "context_recall": "Охват контекста",
-            "context_precision": "Точность контекста",
-            "answer_correctness_literal": "Литеральная корректность",
-            "answer_correctness_neural": "Нейронная корректность"
-        }
-        metrics = list(rename_dict.keys())  # 4 метрики
+                return st.info(f"Нет столбца '{c}' для построения метрик.")
+
+        # Список метрик
+        metrics = [
+            "context_recall",
+            "context_precision",
+            "answer_correctness_literal",
+            "answer_correctness_neural"
+        ]
+
+        # Создаём 4 колонки под 4 графика
         cols = st.columns(4)
         for i, metric in enumerate(metrics):
+            # Группируем по категориям вопросов
             grouped = self.data.groupby("question_category")[metric].mean().reset_index()
-            # Переименуем столбец для красивой подписи
-            rus_metric = rename_dict[metric]
+
             fig = px.bar(
                 grouped,
                 x="question_category",
                 y=metric,
                 labels={
                     "question_category": "Категория вопроса",
-                    metric: f"Среднее значение"
-                }
+                    metric: "Среднее значение"
+                },
+                title=f"Метрика: {metric}"
             )
-            fig.update_layout(title=rus_metric)  # Заголовок графика = русское имя метрики
             with cols[i]:
-                show_plot_with_download_below(fig, f"Метрика_{metric}")
+                show_plot_with_download_below(fig, f"separate_{metric}")
+
+    # (2) Сводный график, где все 4 метрики на одном полотне (со шкалированием 0-100)
+    def plot_quality_metrics_combined(self):
+        needed_cols = [
+            "question_category",
+            "context_recall",
+            "context_precision",
+            "answer_correctness_literal",
+            "answer_correctness_neural"
+        ]
+        for c in needed_cols:
+            if c not in self.data.columns:
+                return st.info(f"Нет столбца '{c}' для построения метрик.")
+
+        grouped = self.data.groupby("question_category")[
+            ["context_recall", "context_precision", "answer_correctness_literal", "answer_correctness_neural"]
+        ].mean().reset_index()
+
+        # Масштабируем каждую метрику к диапазону [0, 100]
+        for metric in ["context_recall", "context_precision", "answer_correctness_literal",
+                       "answer_correctness_neural"]:
+            max_val = grouped[metric].max()
+            if max_val > 0:
+                grouped[metric] = grouped[metric] / max_val * 100
+
+        # Переводим в длинный формат
+        melted = grouped.melt(
+            id_vars="question_category",
+            value_vars=["context_recall", "context_precision", "answer_correctness_literal",
+                        "answer_correctness_neural"],
+            var_name="metric",
+            value_name="mean_value"
+        )
+
+        fig = px.bar(
+            melted,
+            x="question_category",
+            y="mean_value",
+            color="metric",
+            barmode="group",
+            labels={
+                "question_category": "Категория вопроса",
+                "mean_value": "Среднее (0–100)",
+                "metric": "Метрика"
+            },
+            # Убираем title, чтобы не дублировать заголовок со страницы
+            title=""
+        )
+        show_plot_with_download_below(fig, "combined_quality_metrics")
 
 
 # ---------------------------
@@ -302,11 +353,15 @@ def main():
     st.markdown("### Экспорт данных")
     download_json(filtered_df.to_dict(orient="records"))
 
-    # 1) Метрики контекста и корректности (4 отдельных графика)
-    st.markdown("## Метрики контекста и корректности")
-    graphs.plot_quality_metrics()
+    # --- 1) Четыре отдельных графика (каждая метрика отдельно) ---
+    st.markdown("## Отдельные метрики качества")
+    graphs.plot_quality_metrics_separate()
 
-    # 2) Три графика в ряд (без дублирования заголовка в plotly)
+    # --- 2) Один общий график со всеми метриками (со шкалированием), без повторяющегося заголовка ---
+    st.markdown("## Сводный график метрик качества")
+    graphs.plot_quality_metrics_combined()
+
+    # --- 3) Основные метрики ---
     st.markdown("## Основные метрики")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -327,11 +382,11 @@ def main():
         st.subheader("Частота уточняющих вопросов")
         graphs.plot_follow_up_pie_chart()
 
-    # 3) Сравнение времени ответа по категориям
+    # --- 4) Сравнение времени ответа по категориям ---
     st.markdown("## Сравнение времени ответа по категориям")
     graphs.plot_response_time_by_category()
 
-    # 4) Две колонки: среднее время ответа
+    # --- 5) Среднее время ответа (кампусы / группировка) ---
     st.markdown("## Сравнения по времени ответа")
     col4, col5 = st.columns(2)
     with col4:
@@ -341,7 +396,7 @@ def main():
         st.subheader("Усреднённое время ответа (по группам)")
         graphs.plot_averaged_response_time_chart(bin_size=10)
 
-    # 5) Дополнительные графики
+    # --- 6) Дополнительные графики ---
     st.markdown("## Дополнительные графики")
     st.subheader("Распределение времени ответа (BoxPlot)")
     graphs.plot_response_time_boxplot()
