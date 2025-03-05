@@ -1,6 +1,5 @@
 import io
 import json
-
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -12,27 +11,34 @@ from streamlit_autorefresh import st_autorefresh
 # ---------------------------
 st.set_page_config(page_title="Аналитика Чат-Бота", page_icon="🤖", layout="wide")
 
-# Автоперезагрузка каждые 10 секунд (по желанию)
+# ---------------------------
+# CSS-ХАК для кнопок скачивания
+# ---------------------------
+st.markdown("""
+<style>
+button[data-testid="stDownloadButton"] {
+    width: 120px !important;
+    height: 35px !important;
+    font-size: 12px;
+    padding: 0 4px;
+    margin-top: 4px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Автоперезагрузка (по желанию)
 time_interval = 10
 st_autorefresh(interval=time_interval * 1000, key="data_refresh")
 
 
-# ---------------------------
-# ФУНКЦИЯ ДЛЯ ЗАГРУЗКИ ДАННЫХ
-# ---------------------------
 def load_data(file_name: str):
     with open(file_name, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
-# ---------------------------
-# ПРЕДОБРАБОТКА ДАННЫХ
-# ---------------------------
 def process_data(data):
     df = pd.DataFrame(data)
-
-    # Если в данных есть "chat_history" - используем его,
-    # иначе смотрим "contexts", чтобы заполнить conflict_metric
+    # Вычисляем conflict_metric
     if "chat_history" in df.columns:
         df["has_chat_history"] = df["chat_history"].apply(lambda x: len(x.get("old_questions", [])) > 0)
         df["conflict_metric"] = df.apply(
@@ -50,17 +56,12 @@ def process_data(data):
     else:
         df["conflict_metric"] = 0
 
-    # Убедимся, что response_time - число
+    # Преобразуем время ответа в число
     df["response_time"] = pd.to_numeric(df["response_time"], errors="coerce")
-
     return df
 
 
-# ---------------------------
-# ЭКСПОРТ ДАННЫХ (JSON)
-# ---------------------------
 def download_json(data):
-    # Используем default=str, чтобы сериализовать объекты numpy и другие не стандартные типы
     json_data = json.dumps(data, indent=4, ensure_ascii=False, default=str)
     st.download_button(
         label="📥 Скачать JSON",
@@ -71,189 +72,152 @@ def download_json(data):
 
 
 # ---------------------------
-# ЭКСПОРТ ГРАФИКОВ ЧЕРЕЗ PLOTLY (KALEIDO)
+# Функция для вывода графика с кнопкой скачивания, расположенной ПОД графиком
 # ---------------------------
-def download_plotly_fig(fig, filename: str):
+def show_plot_with_download_below(fig, filename: str):
+    st.plotly_chart(fig, use_container_width=True)
     try:
         img_bytes = fig.to_image(format="png")
-        # Размещаем кнопку скачивания в отдельной колонке, если нужно
-        col_btn, _ = st.columns([0.5, 4])
-        with col_btn:
-            st.download_button(
-                label=f"📊 Скачать график «{filename}»",
-                data=img_bytes,
-                file_name=f"{filename}.png",
-                mime="image/png"
-            )
+        st.download_button(
+            label="Скачать график",
+            data=img_bytes,
+            file_name=f"{filename}.png",
+            mime="image/png"
+        )
     except Exception as e:
-        st.error(f"Не удалось экспортировать график: {e}")
+        st.error(f"Ошибка экспорта: {e}")
 
 
 # ---------------------------
-# КЛАСС ДЛЯ ПОСТРОЕНИЯ ГРАФИКОВ (PLOTLY)
+# КЛАСС ДЛЯ ПОСТРОЕНИЯ ГРАФИКОВ
 # ---------------------------
 class Plots:
     def __init__(self, data: pd.DataFrame):
         self.data = data
 
-    # 1. Пирог: распределение по кампусам/уровням и т.п.
-    def plot_pie_chart(self, column: str, title: str):
+    # Пироговая диаграмма: убираем title, т.к. субхедер уже есть
+    def plot_pie_chart(self, column: str, _unused_title: str):
         if self.data.empty or column not in self.data.columns or self.data[column].dropna().empty:
-            st.info(f"Нет данных для построения графика: {title}")
-            return
+            return st.info("Нет данных для построения графика")
         counts = self.data[column].value_counts()
         fig = px.pie(
             names=counts.index,
             values=counts.values,
-            title=title,
             hole=0.4,
             color_discrete_sequence=px.colors.sequential.RdBu
         )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, title)
+        show_plot_with_download_below(fig, f"pie_{column}")
 
-    # 2. Бар-чарт: распределение по любому признаку
-    def plot_bar_chart(self, column: str, title: str, x_label: str, y_label: str):
+    # Столбчатая диаграмма: убираем title
+    def plot_bar_chart(self, column: str, _unused_title: str, x_label: str, y_label: str):
         if self.data.empty or column not in self.data.columns or self.data[column].dropna().empty:
-            st.info(f"Нет данных для построения графика: {title}")
-            return
+            return st.info("Нет данных для построения графика")
         counts = self.data[column].value_counts()
         if counts.empty:
-            st.info(f"Нет данных для построения графика: {title}")
-            return
+            return st.info("Нет данных для построения графика")
         fig = px.bar(
             x=counts.index,
             y=counts.values,
             labels={'x': x_label, 'y': y_label},
-            title=title,
             text_auto=True,
             color_discrete_sequence=px.colors.qualitative.Vivid
         )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, title)
+        show_plot_with_download_below(fig, f"bar_{column}")
 
-    # 3. Среднее время ответа по кампусам
+    # Среднее время ответа по кампусам: убираем title
     def plot_response_time_chart_with_campus(self):
         if self.data.empty or "campus" not in self.data.columns or "response_time" not in self.data.columns:
-            st.info("Нет данных для построения графика: Среднее время ответа по кампусам")
-            return
+            return st.info("Нет данных для построения графика")
         group_data = self.data.groupby("campus")["response_time"].mean().reset_index()
         if group_data.empty:
-            st.info("Нет данных для построения графика: Среднее время ответа по кампусам")
-            return
+            return st.info("Нет данных для построения графика")
         fig = px.bar(
             group_data,
             x="campus",
             y="response_time",
-            title="Среднее время ответа по кампусам",
             color="campus",
             text_auto=True,
             color_discrete_sequence=px.colors.qualitative.Set3
         )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, "Среднее время ответа по кампусам")
+        show_plot_with_download_below(fig, "resp_time_by_campus")
 
-    # 4. УСРЕДНЕНИЕ времени ответа по блокам
+    # УСРЕДНЕНИЕ времени ответа
     def plot_averaged_response_time_chart(self, bin_size: int = 10):
         if self.data.empty or "response_time" not in self.data.columns:
-            st.info("Нет данных для построения графика: Среднее время ответа (усреднение)")
-            return
+            return st.info("Нет данных для построения графика")
         df_copy = self.data.copy()
         df_copy["group"] = df_copy.index // bin_size
         grouped = df_copy.groupby("group")["response_time"].mean().reset_index()
-
         fig = px.bar(
             grouped,
-            x="group",  # номер группы
-            y="response_time",  # среднее время ответа
-            title=f"Среднее время ответа (группы по {bin_size} запросов)",
+            x="group",
+            y="response_time",
             labels={
                 "group": f"Номер группы (по {bin_size} запросов)",
                 "response_time": "Среднее время ответа (сек)"
             }
         )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, f"Среднее время ответа (группы {bin_size})")
+        show_plot_with_download_below(fig, "resp_time_averaged")
 
-    # 5. Процент уточняющих вопросов
+    # Пирог: процент уточняющих вопросов
     def plot_follow_up_pie_chart(self):
         if self.data.empty:
-            st.info("Нет данных для построения графика: Процент уточняющих вопросов")
-            return
+            return st.info("Нет данных для построения графика")
         flag = "has_chat_history" if "has_chat_history" in self.data.columns else "has_contexts"
         if flag not in self.data.columns or self.data[flag].dropna().empty:
-            st.info("Нет данных для построения графика: Процент уточняющих вопросов")
-            return
+            return st.info("Нет данных для построения графика")
         avg_flag = self.data[flag].mean()
         fig = px.pie(
             names=["Без уточнений", "С уточнениями"],
             values=[1 - avg_flag, avg_flag],
-            title="Процент уточняющих вопросов",
             hole=0.3,
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, "Процент уточняющих вопросов")
+        show_plot_with_download_below(fig, "follow_up_pie")
 
-    # 6. Метрика конфликтных ответов (гейдж)
+    # Гейдж: метрика конфликтного ответа
     def plot_conflict_metric(self):
         if self.data.empty or "conflict_metric" not in self.data.columns:
-            st.info("Нет данных для построения графика: Метрика конфликтного ответа")
-            return
+            return st.info("Нет данных для построения графика")
         conflict_rate = self.data["conflict_metric"].mean() * 100
         fig = go.Figure(go.Indicator(
             mode="gauge+number",
             value=conflict_rate,
-            title={"text": "Конфликтный ответ (%)"},
             gauge={
                 'axis': {'range': [0, 100]},
                 'bar': {'color': "red"},
-                'steps': [
-                    {'range': [0, 100], 'color': "lightcoral"}
-                ],
+                'steps': [{'range': [0, 100], 'color': "lightcoral"}],
             }
         ))
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, "Конфликтный ответ (%)")
+        show_plot_with_download_below(fig, "conflict_metric")
 
-    # 7. Сравнение среднего времени ответа по категориям
+    # Среднее время ответа по категориям
     def plot_response_time_by_category(self):
         if self.data.empty or "question_category" not in self.data.columns or "response_time" not in self.data.columns:
-            st.info("Нет данных для построения графика: Сравнение времени ответа по категориям")
-            return
+            return st.info("Нет данных для построения графика")
         grouped = self.data.groupby("question_category")["response_time"].mean().reset_index()
         if grouped.empty:
-            st.info("Нет данных для построения графика: Сравнение времени ответа по категориям")
-            return
+            return st.info("Нет данных для построения графика")
         fig = px.bar(
             grouped,
             x="question_category",
             y="response_time",
-            title="Среднее время ответа по категориям вопросов",
-            labels={
-                "question_category": "Категория вопроса",
-                "response_time": "Среднее время ответа (сек)"
-            },
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, "Среднее время ответа по категориям")
+        show_plot_with_download_below(fig, "resp_time_by_category")
 
-    # 8. Боксплот распределения времени ответа
+    # BoxPlot времени ответа
     def plot_response_time_boxplot(self):
         if self.data.empty or "response_time" not in self.data.columns:
-            st.info("Нет данных для построения графика: Боксплот времени ответа")
-            return
+            return st.info("Нет данных для построения графика")
         fig = px.box(
             self.data,
             y="response_time",
-            title="Распределение времени ответа (BoxPlot)",
             color_discrete_sequence=["#FF6666"]
         )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, "Распределение времени ответа (BoxPlot)")
+        show_plot_with_download_below(fig, "resp_time_boxplot")
 
-    # 9. Новый график: метрики качества по категориям
+    # Метрики контекста и корректности: строим 4 отдельных графика
     def plot_quality_metrics(self):
         needed_cols = [
             "question_category",
@@ -264,35 +228,32 @@ class Plots:
         ]
         for c in needed_cols:
             if c not in self.data.columns:
-                st.info(f"Нет столбца '{c}' для построения метрик")
-                return
-
-        df_metrics = self.data[needed_cols].copy()
-        if df_metrics.empty:
-            st.info("Нет данных для метрик качества")
-            return
-
-        grouped = df_metrics.groupby("question_category").mean().reset_index()
-        df_long = grouped.melt(
-            id_vars="question_category",
-            var_name="metric",
-            value_name="value"
-        )
-        fig = px.bar(
-            df_long,
-            x="question_category",
-            y="value",
-            color="metric",
-            barmode="group",
-            title="Метрики контекста и корректности по категориям",
-            labels={
-                "question_category": "Категория вопроса",
-                "value": "Среднее значение метрики",
-                "metric": "Метрика"
-            }
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        download_plotly_fig(fig, "Метрики по категориям")
+                return st.info(f"Нет столбца '{c}' для построения метрик")
+        # Словарь для переименования метрик на русском
+        rename_dict = {
+            "context_recall": "Охват контекста",
+            "context_precision": "Точность контекста",
+            "answer_correctness_literal": "Литеральная корректность",
+            "answer_correctness_neural": "Нейронная корректность"
+        }
+        metrics = list(rename_dict.keys())  # 4 метрики
+        cols = st.columns(4)
+        for i, metric in enumerate(metrics):
+            grouped = self.data.groupby("question_category")[metric].mean().reset_index()
+            # Переименуем столбец для красивой подписи
+            rus_metric = rename_dict[metric]
+            fig = px.bar(
+                grouped,
+                x="question_category",
+                y=metric,
+                labels={
+                    "question_category": "Категория вопроса",
+                    metric: f"Среднее значение"
+                }
+            )
+            fig.update_layout(title=rus_metric)  # Заголовок графика = русское имя метрики
+            with cols[i]:
+                show_plot_with_download_below(fig, f"Метрика_{metric}")
 
 
 # ---------------------------
@@ -325,9 +286,6 @@ def sidebar_layout(df: pd.DataFrame):
     return filtered_df
 
 
-# ---------------------------
-# ОСНОВНАЯ ЧАСТЬ ПРИЛОЖЕНИЯ
-# ---------------------------
 def main():
     data = load_data("output_last.json")
     df = process_data(data)
@@ -340,47 +298,41 @@ def main():
 
     st.markdown("<h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>", unsafe_allow_html=True)
 
-    # Кнопка скачивания JSON (сверху, но не в sidebar)
+    # Кнопка скачивания JSON
     st.markdown("### Экспорт данных")
     download_json(filtered_df.to_dict(orient="records"))
 
-    # ----------------------------------------
-    # 1) Большой график: метрики качества по категориям
-    # ----------------------------------------
+    # 1) Метрики контекста и корректности (4 отдельных графика)
     st.markdown("## Метрики контекста и корректности")
     graphs.plot_quality_metrics()
 
-    # ----------------------------------------
-    # 2) Строка с тремя графиками
-    # ----------------------------------------
-    st.markdown("## Основные метрики (три графика в ряд)")
+    # 2) Три графика в ряд (без дублирования заголовка в plotly)
+    st.markdown("## Основные метрики")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.subheader("Распределение запросов по кампусам")
         if "campus" in filtered_df.columns:
-            graphs.plot_pie_chart("campus", "Распределение запросов по кампусам")
+            graphs.plot_pie_chart("campus", "unused_title")
         else:
             st.info("Нет столбца 'campus'")
+
     with col2:
         st.subheader("Распределение по уровням образования")
         if "education_level" in filtered_df.columns:
-            graphs.plot_pie_chart("education_level", "Распределение по уровням образования")
+            graphs.plot_pie_chart("education_level", "unused_title")
         else:
             st.info("Нет столбца 'education_level'")
+
     with col3:
         st.subheader("Частота уточняющих вопросов")
         graphs.plot_follow_up_pie_chart()
 
-    # ----------------------------------------
-    # 3) Большой график: сравнение времени ответа по категориям
-    # ----------------------------------------
-    st.markdown("## Сравнение времени ответа по категориям (большой график)")
+    # 3) Сравнение времени ответа по категориям
+    st.markdown("## Сравнение времени ответа по категориям")
     graphs.plot_response_time_by_category()
 
-    # ----------------------------------------
-    # 4) Строка из двух графиков
-    # ----------------------------------------
-    st.markdown("## Сравнения по времени ответа (две колонки)")
+    # 4) Две колонки: среднее время ответа
+    st.markdown("## Сравнения по времени ответа")
     col4, col5 = st.columns(2)
     with col4:
         st.subheader("Среднее время ответа по кампусам")
@@ -389,12 +341,11 @@ def main():
         st.subheader("Усреднённое время ответа (по группам)")
         graphs.plot_averaged_response_time_chart(bin_size=10)
 
-    # ----------------------------------------
-    # 5) Дополнительные графики: боксплот и гейдж
-    # ----------------------------------------
+    # 5) Дополнительные графики
     st.markdown("## Дополнительные графики")
     st.subheader("Распределение времени ответа (BoxPlot)")
     graphs.plot_response_time_boxplot()
+
     st.subheader("Метрика конфликтного ответа")
     graphs.plot_conflict_metric()
 
