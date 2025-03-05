@@ -1,3 +1,4 @@
+import io
 import json
 
 import pandas as pd
@@ -29,15 +30,28 @@ def load_data(file_name: str):
 # ---------------------------
 def process_data(data):
     df = pd.DataFrame(data)
-    df["has_chat_history"] = df["chat_history"].apply(lambda x: len(x.get("old_questions", [])) > 0)
-    df["response_time"] = pd.to_numeric(df["Время ответа модели"], errors="coerce")
+    # Если в данных есть ключ "chat_history", используем его, иначе обрабатываем "contexts"
+    if "chat_history" in df.columns:
+        df["has_chat_history"] = df["chat_history"].apply(lambda x: len(x.get("old_questions", [])) > 0)
+        df["conflict_metric"] = df.apply(
+            lambda row: 1 if (len(row.get("chat_history", {}).get("old_questions", [])) > 1 and row[
+                "response_time"] > 3) else 0,
+            axis=1
+        )
+    elif "contexts" in df.columns:
+        # Создаем флаг наличия контекстов
+        df["has_contexts"] = df["contexts"].apply(lambda x: len(x) > 0 if isinstance(x, list) else False)
+        df["conflict_metric"] = df.apply(
+            lambda row: 1 if (
+                        row["has_contexts"] and len(row.get("contexts", [])) > 1 and row["response_time"] > 3) else 0,
+            axis=1
+        )
+    else:
+        df["has_contexts"] = False
+        df["conflict_metric"] = 0
 
-    # Доп. метрика: "убедительный, но неверный ответ"
-    df["conflict_metric"] = df.apply(
-        lambda row: 1 if (len(row.get("chat_history", {}).get("old_questions", [])) > 1 and row["response_time"] > 3)
-        else 0,
-        axis=1
-    )
+    # Обновляем значение времени ответа, теперь ключ "response_time" уже есть в JSON
+    df["response_time"] = pd.to_numeric(df["response_time"], errors="coerce")
     return df
 
 
@@ -45,9 +59,6 @@ def process_data(data):
 # ЭКСПОРТ ДАННЫХ (JSON)
 # ---------------------------
 def download_json(data):
-    """
-    Кнопка для скачивания исходного JSON (логов).
-    """
     json_data = json.dumps(data, indent=4, ensure_ascii=False)
     st.download_button(
         label="📥 Скачать JSON",
@@ -61,10 +72,8 @@ def download_json(data):
 # ЭКСПОРТ ГРАФИКОВ ЧЕРЕЗ PLOTLY (KALEIDO)
 # ---------------------------
 def download_plotly_fig(fig, filename: str):
-    """
-    Сохраняет Plotly-график в PNG с помощью Kaleido и даёт кнопку для скачивания.
-    """
     try:
+        # Метод to_image использует Kaleido под капотом (убедитесь, что kaleido установлен)
         img_bytes = fig.to_image(format="png")
         st.download_button(
             label=f"📊 Скачать график «{filename}»",
@@ -73,7 +82,7 @@ def download_plotly_fig(fig, filename: str):
             mime="image/png"
         )
     except Exception as e:
-        st.error(f"Не удалось экспортировать график в PNG. Убедитесь, что kaleido установлен. Ошибка: {e}")
+        st.error(f"Не удалось экспортировать график в PNG. Убедитесь, что установлен kaleido. Ошибка: {e}")
 
 
 # ---------------------------
@@ -118,19 +127,19 @@ class Plots:
         download_plotly_fig(fig, title)
 
     def plot_response_time_chart_with_campus(self):
-        if self.data.empty or "Кампус" not in self.data.columns or "response_time" not in self.data.columns:
+        if self.data.empty or "campus" not in self.data.columns or "response_time" not in self.data.columns:
             st.info("Нет данных для построения графика: Среднее время ответа по кампусам")
             return
-        group_data = self.data.groupby("Кампус")["response_time"].mean().reset_index()
+        group_data = self.data.groupby("campus")["response_time"].mean().reset_index()
         if group_data.empty:
             st.info("Нет данных для построения графика: Среднее время ответа по кампусам")
             return
         fig = px.bar(
             group_data,
-            x="Кампус",
+            x="campus",
             y="response_time",
             title="Среднее время ответа по кампусам",
-            color="Кампус",
+            color="campus",
             text_auto=True,
             color_discrete_sequence=px.colors.qualitative.Set3
         )
@@ -141,38 +150,60 @@ class Plots:
         if self.data.empty or "response_time" not in self.data.columns:
             st.info("Нет данных для построения графика: Динамика времени ответа модели")
             return
+
+        # Создаем колонку со скользящим средним (окно = 20)
+        # min_periods=1 позволяет строить среднее даже если данных меньше 20
+        self.data["rolling_avg"] = self.data["response_time"].rolling(window=20, min_periods=1).mean()
+
         fig = go.Figure()
+
+        # Точки (scatter) для каждого запроса
         fig.add_trace(go.Scatter(
             x=self.data.index,
             y=self.data["response_time"],
-            mode='lines+markers',
-            name='Время ответа',
-            marker=dict(size=8, symbol='circle', color='red', line=dict(width=2, color='black')),
+            mode='markers',
+            name='Время ответа (сырые данные)',
+            marker=dict(size=5, color='red')
+        ))
+
+        # Линия скользящего среднего
+        fig.add_trace(go.Scatter(
+            x=self.data.index,
+            y=self.data["rolling_avg"],
+            mode='lines',
+            name='Скользящее среднее (окно=20)',
             line=dict(width=2, color='blue')
         ))
+
         fig.update_layout(
-            title="Динамика времени ответа модели",
+            title="Динамика времени ответа модели (со скользящим средним)",
             xaxis_title="Запросы",
             yaxis_title="Время ответа (сек)",
             hovermode="x unified"
         )
+
         st.plotly_chart(fig)
-        download_plotly_fig(fig, "Динамика времени ответа модели")
+        download_plotly_fig(fig, "Динамика времени ответа (скользящее среднее)")
 
     def plot_follow_up_pie_chart(self):
-        if self.data.empty or "has_chat_history" not in self.data.columns:
-            st.info("Нет данных для построения графика: Процент уточняющих вопросов пользователей")
+        # Здесь используем флаг наличия контекстов, созданный в process_data (если "chat_history" отсутствует)
+        if self.data.empty:
+            st.info("Нет данных для построения графика: Процент уточняющих вопросов")
             return
-        follow_ups = self.data["has_chat_history"].mean()
+        flag = "has_chat_history" if "has_chat_history" in self.data.columns else "has_contexts"
+        if self.data[flag].dropna().empty:
+            st.info("Нет данных для построения графика: Процент уточняющих вопросов")
+            return
+        avg_flag = self.data[flag].mean()
         fig = px.pie(
             names=["Без уточнений", "С уточнениями"],
-            values=[1 - follow_ups, follow_ups],
-            title="Процент уточняющих вопросов пользователей",
+            values=[1 - avg_flag, avg_flag],
+            title="Процент уточняющих вопросов",
             hole=0.3,
             color_discrete_sequence=px.colors.qualitative.Pastel
         )
         st.plotly_chart(fig)
-        download_plotly_fig(fig, "Процент уточняющих вопросов пользователей")
+        download_plotly_fig(fig, "Процент уточняющих вопросов")
 
     def plot_conflict_metric(self):
         if self.data.empty or "conflict_metric" not in self.data.columns:
@@ -202,9 +233,10 @@ class Plots:
 def sidebar_layout(df: pd.DataFrame):
     st.sidebar.title("Фильтры")
 
-    campuses = df["Кампус"].dropna().unique().tolist()
-    categories = df["Категория вопроса"].dropna().unique().tolist()
-    education_levels = df["Уровень образования"].dropna().unique().tolist()
+    # Используем ключи из нового JSON
+    campuses = df["campus"].dropna().unique().tolist()
+    categories = df["question_category"].dropna().unique().tolist()
+    education_levels = df["education_level"].dropna().unique().tolist()
 
     selected_campus = st.sidebar.multiselect("Выберите кампус", campuses, default=campuses)
     selected_category = st.sidebar.multiselect("Выберите категорию вопроса", categories, default=categories)
@@ -212,50 +244,44 @@ def sidebar_layout(df: pd.DataFrame):
                                                 default=education_levels)
 
     st.sidebar.subheader("Экспорт данных")
-    # Кнопка скачивания JSON
     download_json(df.to_dict(orient="records"))
 
     filtered_df = df[
-        (df["Кампус"].isin(selected_campus)) &
-        (df["Категория вопроса"].isin(selected_category)) &
-        (df["Уровень образования"].isin(selected_edu_level))
+        (df["campus"].isin(selected_campus)) &
+        (df["question_category"].isin(selected_category)) &
+        (df["education_level"].isin(selected_edu_level))
         ]
     return filtered_df
 
 
 # ---------------------------
-# ОСНОВНОЙ БЛОК ПРИЛОЖЕНИЯ
+# ОСНОВНАЯ ЧАСТЬ ПРИЛОЖЕНИЯ
 # ---------------------------
 def main():
-    # 1. Загрузка и подготовка данных
-    data = load_data("logs.json")
+    # Загрузка и подготовка данных из нового JSON
+    data = load_data("output_last.json")
     df = process_data(data)
 
-    # 2. Боковая панель (фильтрация + экспорт)
+    # Боковая панель с фильтрами и экспортом
     filtered_df = sidebar_layout(df)
-
-    # Если после фильтров нет данных
     if filtered_df.empty:
         st.info("Нет данных для отображения. Попробуйте изменить фильтры.")
         return
 
-    # 3. Инициализация класса для построения графиков
     graphs = Plots(filtered_df)
 
-    # 4. Заголовок
     st.markdown("<h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>", unsafe_allow_html=True)
 
-    # 5. Построение графиков
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Распределение запросов по кампусам")
-        graphs.plot_pie_chart("Кампус", "Распределение запросов по кампусам")
+        graphs.plot_pie_chart("campus", "Распределение запросов по кампусам")
     with col2:
         st.subheader("Распределение по уровням образования")
-        graphs.plot_pie_chart("Уровень образования", "Распределение по уровням образования")
+        graphs.plot_pie_chart("education_level", "Распределение по уровням образования")
 
     st.subheader("Категории вопросов")
-    graphs.plot_bar_chart("Категория вопроса", "Распределение вопросов по категориям", "Категории", "Количество")
+    graphs.plot_bar_chart("question_category", "Распределение вопросов по категориям", "Категории", "Количество")
 
     col3, col4 = st.columns(2)
     with col3:
@@ -272,8 +298,5 @@ def main():
     graphs.plot_conflict_metric()
 
 
-# ---------------------------
-# ЗАПУСК
-# ---------------------------
 if __name__ == "__main__":
     main()
