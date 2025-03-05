@@ -1,4 +1,9 @@
 # ДАШБОРД
+![1](Images/1.png)
+
+![2](Images/2.png)
+
+![3](Images/3.png)
 
 ## Установка requirements
 Для работы проекта необходимы библиотеки, указанные в requirements:
