@@ -7,13 +7,14 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 # ---------------------------
-# НАСТРОЙКА СТРАНИЦЫ STREAMLIT
+# ⁡⁣⁣⁢НАСТРОЙКА СТРАНИЦЫ STREAMLIT⁡
 # ---------------------------
 # Конфигурируем параметры страницы: заголовок, иконку и ширину макета
-st.set_page_config(page_title="Аналитика Чат-Бота", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="Аналитика Чат-Бота",
+                   page_icon="🤖", layout="wide")
 
 # ---------------------------
-# CSS-ХАК ДЛЯ КНОПОК СКАЧИВАНИЯ
+# ⁡⁣⁣⁢CSS-ХАК ДЛЯ КНОПОК СКАЧИВАНИЯ⁡
 # ---------------------------
 # Определяем стиль кнопок скачивания, чтобы задать фиксированные размеры и шрифт
 st.markdown("""
@@ -37,7 +38,7 @@ st_autorefresh(interval=time_interval * 1000, key="data_refresh")
 
 
 # ---------------------------
-# ФУНКЦИЯ ЗАГРУЗКИ ДАННЫХ
+# ⁡⁣⁣⁢ФУНКЦИЯ ЗАГРУЗКИ ДАННЫХ⁡
 # ---------------------------
 def load_data(file_name: str):
     """
@@ -50,7 +51,7 @@ def load_data(file_name: str):
 
 
 # ---------------------------
-# ФУНКЦИЯ ОБРАБОТКИ ДАННЫХ
+# ⁡⁣⁣⁢ФУНКЦИЯ ОБРАБОТКИ ДАННЫХ⁡
 # ---------------------------
 def process_data(data):
     """
@@ -66,7 +67,8 @@ def process_data(data):
 
     # Если есть столбец chat_history, вычисляем метрики по истории чата
     if "chat_history" in df.columns:
-        df["has_chat_history"] = df["chat_history"].apply(lambda x: len(x.get("old_questions", [])) > 0)
+        df["has_chat_history"] = df["chat_history"].apply(
+            lambda x: len(x.get("old_questions", [])) > 0)
         df["conflict_metric"] = df.apply(
             lambda row: 1 if (len(row.get("chat_history", {}).get("old_questions", [])) > 1
                               and row["response_time"] > 3) else 0,
@@ -74,7 +76,8 @@ def process_data(data):
         )
     # Если нет chat_history, но есть contexts, делаем аналогичные вычисления
     elif "contexts" in df.columns:
-        df["has_contexts"] = df["contexts"].apply(lambda x: len(x) > 0 if isinstance(x, list) else False)
+        df["has_contexts"] = df["contexts"].apply(
+            lambda x: len(x) > 0 if isinstance(x, list) else False)
         df["conflict_metric"] = df.apply(
             lambda row: 1 if (row["has_contexts"] and len(row.get("contexts", [])) > 1
                               and row["response_time"] > 3) else 0,
@@ -89,7 +92,7 @@ def process_data(data):
 
 
 # ---------------------------
-# ФУНКЦИЯ ДЛЯ СКАЧИВАНИЯ JSON ДАННЫХ
+# ⁡⁣⁣⁢ФУНКЦИЯ ДЛЯ СКАЧИВАНИЯ JSON ДАННЫХ⁡
 # ---------------------------
 def download_json(data):
     """
@@ -106,7 +109,7 @@ def download_json(data):
 
 
 # ---------------------------
-# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОТОБРАЖЕНИЯ ГРАФИКОВ
+# ⁡⁣⁣⁢ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ОТОБРАЖЕНИЯ ГРАФИКОВ⁡
 # ---------------------------
 def show_plot_with_download_below(fig, filename: str):
     """
@@ -128,7 +131,7 @@ def show_plot_with_download_below(fig, filename: str):
 
 
 # ---------------------------
-# КЛАСС ДЛЯ ПОСТРОЕНИЯ ГРАФИКОВ
+# ⁡⁣⁣⁢КЛАСС ДЛЯ ПОСТРОЕНИЯ ГРАФИКОВ⁡
 # ---------------------------
 class Plots:
     def __init__(self, data: pd.DataFrame):
@@ -186,7 +189,8 @@ class Plots:
         """
         if self.data.empty or "campus" not in self.data.columns or "response_time" not in self.data.columns:
             return st.info("Нет данных для построения графика")
-        group_data = self.data.groupby("campus")["response_time"].mean().reset_index()
+        group_data = self.data.groupby(
+            "campus")["response_time"].mean().reset_index()
         if group_data.empty:
             return st.info("Нет данных для построения графика")
         fig = px.bar(
@@ -209,7 +213,8 @@ class Plots:
             return st.info("Нет данных для построения графика")
         df_copy = self.data.copy()
         df_copy["group"] = df_copy.index // bin_size
-        grouped = df_copy.groupby("group")["response_time"].mean().reset_index()
+        grouped = df_copy.groupby(
+            "group")["response_time"].mean().reset_index()
         fig = px.bar(
             grouped,
             x="group",
@@ -267,7 +272,8 @@ class Plots:
         """
         if self.data.empty or "question_category" not in self.data.columns or "response_time" not in self.data.columns:
             return st.info("Нет данных для построения графика")
-        grouped = self.data.groupby("question_category")["response_time"].mean().reset_index()
+        grouped = self.data.groupby("question_category")[
+            "response_time"].mean().reset_index()
         if grouped.empty:
             return st.info("Нет данных для построения графика")
         fig = px.bar(
@@ -327,7 +333,8 @@ class Plots:
         # Создаем 5 колонок для отображения графиков в одной строке
         cols = st.columns(5)
         for i, metric in enumerate(metrics):
-            grouped = self.data.groupby("question_category")[metric].mean().reset_index()
+            grouped = self.data.groupby("question_category")[
+                metric].mean().reset_index()
             fig = px.bar(
                 grouped,
                 x="question_category",
@@ -369,7 +376,8 @@ class Plots:
         ]
 
         # Группировка данных по категориям вопросов и вычисление средних значений для каждой метрики
-        grouped = self.data.groupby("question_category")[metrics].mean().reset_index()
+        grouped = self.data.groupby("question_category")[
+            metrics].mean().reset_index()
 
         # Масштабирование значений каждой метрики к диапазону [0, 100] для корректного сравнения
         for metric in metrics:
@@ -402,7 +410,7 @@ class Plots:
 
 
 # ---------------------------
-# ФУНКЦИЯ САЙДБАРА ДЛЯ ФИЛЬТРАЦИИ ДАННЫХ
+# ⁡⁣⁣⁢ФУНКЦИЯ САЙДБАРА ДЛЯ ФИЛЬТРАЦИИ ДАННЫХ⁡
 # ---------------------------
 def sidebar_layout(df: pd.DataFrame):
     """
@@ -416,12 +424,17 @@ def sidebar_layout(df: pd.DataFrame):
     )
     st.sidebar.title("Фильтры")
 
-    campuses = df["campus"].dropna().unique().tolist() if "campus" in df.columns else []
-    categories = df["question_category"].dropna().unique().tolist() if "question_category" in df.columns else []
-    education_levels = df["education_level"].dropna().unique().tolist() if "education_level" in df.columns else []
+    campuses = df["campus"].dropna().unique(
+    ).tolist() if "campus" in df.columns else []
+    categories = df["question_category"].dropna().unique(
+    ).tolist() if "question_category" in df.columns else []
+    education_levels = df["education_level"].dropna().unique(
+    ).tolist() if "education_level" in df.columns else []
 
-    selected_campus = st.sidebar.multiselect("Выберите кампус", campuses, default=campuses)
-    selected_category = st.sidebar.multiselect("Выберите категорию вопроса", categories, default=categories)
+    selected_campus = st.sidebar.multiselect(
+        "Выберите кампус", campuses, default=campuses)
+    selected_category = st.sidebar.multiselect(
+        "Выберите категорию вопроса", categories, default=categories)
     selected_edu_level = st.sidebar.multiselect("Выберите уровень образования", education_levels,
                                                 default=education_levels)
 
@@ -429,15 +442,17 @@ def sidebar_layout(df: pd.DataFrame):
     if "campus" in df.columns:
         filtered_df = filtered_df[filtered_df["campus"].isin(selected_campus)]
     if "question_category" in df.columns:
-        filtered_df = filtered_df[filtered_df["question_category"].isin(selected_category)]
+        filtered_df = filtered_df[filtered_df["question_category"].isin(
+            selected_category)]
     if "education_level" in df.columns:
-        filtered_df = filtered_df[filtered_df["education_level"].isin(selected_edu_level)]
+        filtered_df = filtered_df[filtered_df["education_level"].isin(
+            selected_edu_level)]
 
     return filtered_df
 
 
 # ---------------------------
-# ГЛАВНАЯ ФУНКЦИЯ
+# ⁡⁣⁣⁢ГЛАВНАЯ ФУНКЦИЯ⁡
 # ---------------------------
 def main():
     """
@@ -459,7 +474,8 @@ def main():
     graphs = Plots(filtered_df)
 
     # Заголовок приложения
-    st.markdown("<h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center;'>Мониторинг качества чат-бота</h1>",
+                unsafe_allow_html=True)
 
     # Кнопка для скачивания отфильтрованных данных в формате JSON
     st.markdown("### Экспорт данных")
